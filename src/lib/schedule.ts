@@ -1,9 +1,11 @@
 import type { CarDocument, CheckLog, Symptom } from './types'
 import { currentDocuments, docName } from './documents'
+import { activeWarranties } from './insights'
+import { SEASONAL_TIPS } from '../data/extras'
 import { allStatuses, latestKm, type CarContext } from './maintenance'
-import { DAY, fmtKm, fromJalali, jalali, monthLength, startOfDay } from './format'
+import { DAY, fmtKm, fromJalali, jalali, JALALI_MONTHS, monthLength, startOfDay } from './format'
 
-export type ReminderKind = 'check' | 'odometer' | 'part' | 'symptom' | 'backup' | 'document'
+export type ReminderKind = 'check' | 'odometer' | 'part' | 'symptom' | 'backup' | 'document' | 'warranty' | 'seasonal' | 'summary'
 
 export interface Reminder {
   /** Stable id so re-syncs don't duplicate notifications */
@@ -132,7 +134,37 @@ export function buildSchedule(input: ScheduleInput): Reminder[] {
     }
   }
 
+  // Warranties: two weeks before they run out, so problems get claimed in time
+  for (const w of activeWarranties(input, now)) {
+    const name = w.part?.name ?? w.record.partId
+    push({ id: `${carTag}-warranty-${w.record.id}`, at: atHour(w.expiresAt - 14 * DAY, hour), kind: 'warranty', title: `گارانتی ${name} رو به پایان است`, body: `گارانتی ${name} دو هفته دیگر تمام می‌شود. اگر ایرادی دارد همین حالا پیگیری کن.`, url: `#/part/${w.record.partId}` })
+  }
+
   return out.sort((a, b) => a.at - b.at)
+}
+
+/** App-wide: seasonal preparation tips and the monthly summary */
+export function calendarReminders(now: number, horizonDays: number, hour: number): Reminder[] {
+  const out: Reminder[] = []
+  const to = now + horizonDays * DAY
+  let { jy, jm } = jalali(now)
+  for (let i = 0; i < Math.ceil(horizonDays / 28) + 2; i++) {
+    const first = fromJalali(jy, jm, 1, hour)
+    if (first > now && first <= to) {
+      const prev = jm === 1 ? 12 : jm - 1
+      out.push({ id: `summary-${jy}-${jm}`, at: first, kind: 'summary', title: `خلاصه‌ی ${JALALI_MONTHS[prev - 1]} آماده است`, body: 'پیمایش، سوخت و هزینه‌های ماه گذشته را ببین.', url: '#/summary' })
+    }
+    for (const tip of SEASONAL_TIPS.filter((t) => t.jm === jm)) {
+      const at = fromJalali(jy, jm, tip.jd, hour)
+      if (at > now && at <= to) out.push({ id: `season-${jy}-${tip.id}`, at, kind: 'seasonal', title: tip.title, body: tip.items.slice(0, 3).join('، '), url: '#/' })
+    }
+    jm++
+    if (jm > 12) {
+      jm = 1
+      jy++
+    }
+  }
+  return out
 }
 
 /** Backup reminders are app-wide, not per car */

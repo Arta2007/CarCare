@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, BookOpen, CalendarPlus, CarFront, ChartColumn, Code2, FileBadge, FileDown, Fuel, DatabaseBackup, Download, FileText, History, Moon, Upload, Wrench } from 'lucide-react'
+import { Bell, BookOpen, CalendarDays, CalendarPlus, ClipboardList, Plane, Store, TrendingUp, CarFront, ChartColumn, Code2, FileBadge, FileDown, Fuel, DatabaseBackup, Download, FileText, History, Moon, Upload, Wrench } from 'lucide-react'
 import type { ActiveCar } from '../lib/store'
 import { allReminders, useSettings } from '../lib/store'
 import { exportAll, importAll, updateSettings } from '../lib/db'
@@ -46,8 +46,17 @@ export function MoreScreen({ data }: { data: ActiveCar }) {
           <ListRow icon={<IconBox color="#e5484d"><Bell className="size-5" /></IconBox>} title="اعلان‌ها و یادآورها" subtitle={settings.pushServer ? 'اعلان فعال' : 'تقویم آیفون / اعلان'} onClick={() => navigate('notifications')} />
         </Card>
 
+        <SectionTitle>ابزارها</SectionTitle>
+        <Card className="divide-y divide-line overflow-hidden">
+          <ListRow icon={<IconBox color="#0ea5e9"><ClipboardList className="size-5" /></IconBox>} title="لیست تعمیرگاه" subtitle="کارها و ایرادها برای ارسال به تعمیرکار" onClick={() => navigate('visit')} />
+          <ListRow icon={<IconBox color="#14b8a6"><TrendingUp className="size-5" /></IconBox>} title="پیش‌بینی هزینه" subtitle="۳، ۶ و ۱۲ ماه آینده" onClick={() => navigate('forecast')} />
+          <ListRow icon={<IconBox color="#6366f1"><Plane className="size-5" /></IconBox>} title="چک‌لیست سفر" onClick={() => navigate('trip')} />
+          <ListRow icon={<IconBox color="#a16207"><Store className="size-5" /></IconBox>} title="تعمیرگاه‌ها" onClick={() => navigate('shops')} />
+        </Card>
+
         <SectionTitle>گزارش</SectionTitle>
         <Card className="divide-y divide-line overflow-hidden">
+          <ListRow icon={<IconBox color="#ec4899"><CalendarDays className="size-5" /></IconBox>} title="خلاصه‌ی ماهانه" onClick={() => navigate('summary')} />
           <ListRow icon={<IconBox color="#8b5cf6"><History className="size-5" /></IconBox>} title="تاریخچه‌ی کامل" onClick={() => navigate('history')} />
           <ListRow icon={<IconBox color="#17b26a"><ChartColumn className="size-5" /></IconBox>} title="هزینه‌ها" onClick={() => navigate('costs')} />
           <ListRow icon={<IconBox color="#0ea5e9"><FileDown className="size-5" /></IconBox>} title="گزارش PDF سوابق" subtitle="برای فروش یا تعمیرکار" onClick={() => navigate('report')} />
@@ -157,7 +166,7 @@ export function NotificationsScreen() {
     }
   }
 
-  const kindIcon: Record<Reminder['kind'], string> = { check: '💧', odometer: '🔢', part: '🔧', symptom: '⚠️', backup: '💾', document: '📄' }
+  const kindIcon: Record<Reminder['kind'], string> = { check: '💧', odometer: '🔢', part: '🔧', symptom: '⚠️', backup: '💾', document: '📄', warranty: '🛡', seasonal: '🍂', summary: '📊' }
 
   return (
     <div className="pb-tabbar">
@@ -307,6 +316,7 @@ export function HistoryScreen({ data }: { data: ActiveCar }) {
   const partName = (id: string) => data.model.parts.find((p) => p.id === id)?.name ?? id
   const items: HistoryItem[] = [
     ...data.services.map((s) => ({ date: s.date, kind: 'service' as const, title: partName(s.partId), sub: `${fmtKm(s.km)}${s.cost ? ` • ${fmtToman(s.cost)}` : ''}${s.shop ? ` • ${s.shop}` : ''}`, go: `part/${s.partId}` })),
+    ...data.oil.map((o) => ({ date: o.date, kind: 'service' as const, title: `اضافه کردن روغن: ${toFa(o.liters)} لیتر`, sub: fmtKm(o.km) })),
     ...data.odometer.map((r) => ({ date: r.date, kind: 'odo' as const, title: `کیلومتر: ${fmtNum(r.km)}`, sub: '' })),
     ...data.checks.map((c) => ({ date: c.date, kind: 'check' as const, title: 'چک دوره‌ای', sub: c.items.map((i) => CHECK_ITEMS.find((x) => x.id === i)?.name).filter(Boolean).join('، ') })),
     ...data.symptoms.map((s) => ({ date: s.date, kind: 'symptom' as const, title: s.title, sub: `${SYMPTOM_CATEGORIES[s.category]} • ${s.status === 'open' ? 'باز' : 'برطرف‌شده'}`, go: `symptom/${s.id}` })),

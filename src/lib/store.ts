@@ -1,10 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getCatalog, getSettings, updateSettings } from './db'
 import { applicableParts, findModel, type CarContext } from './maintenance'
-import type { Car, CarDocument, CheckLog, FuelLog, OdometerReading, Symptom } from './types'
+import type { Car, CarDocument, CheckLog, FuelLog, OdometerReading, OilTopup, Symptom } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import { DEFAULT_CATALOG } from '../data/catalog'
-import { backupReminders, buildSchedule, type Reminder } from './schedule'
+import { backupReminders, buildSchedule, calendarReminders, type Reminder } from './schedule'
 
 export function useSettings() {
   return useLiveQuery(getSettings, [], DEFAULT_SETTINGS)
@@ -25,11 +25,12 @@ export interface ActiveCar extends CarContext {
   symptoms: Symptom[]
   documents: CarDocument[]
   fuel: FuelLog[]
+  oil: OilTopup[]
 }
 
 async function loadCarData(car: Car): Promise<ActiveCar | null> {
   const id = car.id!
-  const [catalog, settings, odometer, services, checks, symptoms, documents, fuel] = await Promise.all([
+  const [catalog, settings, odometer, services, checks, symptoms, documents, fuel, oil] = await Promise.all([
     getCatalog(),
     getSettings(),
     db.odometer.where('carId').equals(id).toArray(),
@@ -38,11 +39,12 @@ async function loadCarData(car: Car): Promise<ActiveCar | null> {
     db.symptoms.where('carId').equals(id).toArray(),
     db.documents.where('carId').equals(id).toArray(),
     db.fuel.where('carId').equals(id).toArray(),
+    db.oil.where('carId').equals(id).toArray(),
   ])
   const model = findModel(catalog, car.modelId)
   if (!model) return null
-  const readings = [...odometer, ...fuel.map((f) => ({ carId: id, km: f.km, date: f.date }))]
-  return { car, model, parts: applicableParts(model, car), readings, odometer, services, checks, symptoms, documents, fuel, settings, now: Date.now() }
+  const readings = [...odometer, ...[...fuel, ...oil].map((f) => ({ carId: id, km: f.km, date: f.date }))]
+  return { car, model, parts: applicableParts(model, car), readings, odometer, services, checks, symptoms, documents, fuel, oil, settings, now: Date.now() }
 }
 
 /** Everything the screens need for the selected car, kept live with IndexedDB */
@@ -70,6 +72,7 @@ export async function allReminders(horizonDays: number): Promise<Reminder[]> {
     if (data) out.push(...buildSchedule({ ...data, now, horizonDays }))
   }
   out.push(...backupReminders(settings.lastBackupAt, settings.backupReminderDays, settings.notifyHour, now, horizonDays))
+  out.push(...calendarReminders(now, horizonDays, settings.notifyHour))
   return out.sort((a, b) => a.at - b.at)
 }
 

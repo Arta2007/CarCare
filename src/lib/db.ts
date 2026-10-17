@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Car, CarDocument, Catalog, CheckLog, FuelLog, OdometerReading, Photo, ServiceRecord, Settings, Symptom } from './types'
+import type { Car, CarDocument, Catalog, CheckLog, FuelLog, OdometerReading, OilTopup, Photo, ServiceRecord, Settings, Shop, Symptom } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import { DEFAULT_CATALOG } from '../data/catalog'
 
@@ -17,6 +17,8 @@ export const db = new Dexie('carcare') as Dexie & {
   documents: EntityTable<CarDocument, 'id'>
   fuel: EntityTable<FuelLog, 'id'>
   photos: EntityTable<Photo, 'id'>
+  oil: EntityTable<OilTopup, 'id'>
+  shops: EntityTable<Shop, 'id'>
   kv: EntityTable<KV, 'key'>
 }
 
@@ -35,8 +37,13 @@ db.version(2).stores({
   photos: '++id, [owner+ownerId]',
 })
 
+db.version(3).stores({
+  oil: '++id, carId, date',
+  shops: '++id, name',
+})
+
 /** Tables that hold per-car records (deleted together with the car) */
-export const CAR_TABLES = ['odometer', 'services', 'symptoms', 'checks', 'documents', 'fuel'] as const
+export const CAR_TABLES = ['odometer', 'services', 'symptoms', 'checks', 'documents', 'fuel', 'oil'] as const
 
 export async function getSettings(): Promise<Settings> {
   const row = await db.kv.get('settings')
@@ -62,7 +69,7 @@ export async function resetCatalog(): Promise<void> {
   await db.kv.delete('catalog')
 }
 
-const DATA_TABLES = ['cars', 'odometer', 'services', 'symptoms', 'checks', 'documents', 'fuel', 'kv'] as const
+const DATA_TABLES = ['cars', 'odometer', 'services', 'symptoms', 'checks', 'documents', 'fuel', 'oil', 'shops', 'kv'] as const
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

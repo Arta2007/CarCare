@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ClipboardCheck, Droplets, FileBadge, Fuel, Gauge, Search, Siren, Trash2, Wrench } from 'lucide-react'
-import { db } from '../lib/db'
+import { Check, ClipboardCheck, ClipboardList, Droplet, Droplets, FileBadge, Fuel, Gauge, Search, Siren, Trash2, Wrench } from 'lucide-react'
+import { db, updateSettings } from '../lib/db'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { BUILTIN_BUNDLES } from '../data/extras'
 import { closeSheet, openSheet, useSheet } from '../lib/sheets'
 import { newVisitId, type ActiveCar } from '../lib/store'
 import { allStatuses, estimateKmNow, latestKm } from '../lib/maintenance'
 import { CATEGORIES, CHECK_ITEMS, SYMPTOM_CATEGORIES } from '../data/catalog'
-import { DAY, fmtDate, fmtKm, fmtNum, fmtRelDays } from '../lib/format'
+import { DAY, fmtDate, fmtKm, fmtNum, fmtRelDays, toFa } from '../lib/format'
 import type { CategoryId, Symptom, SymptomCategory } from '../lib/types'
 import { loadPhotos, PhotoPicker, savePhotos, type PhotoItem } from './photos'
 import { visitAnchorId } from '../lib/maintenance'
@@ -21,6 +23,7 @@ export function SheetHost({ data }: { data: ActiveCar }) {
       {s?.type === 'symptom' && <SymptomSheet data={data} editId={s.editId} preset={s.preset} />}
       {s?.type === 'check' && <CheckSheet data={data} />}
       {s?.type === 'fuel' && <FuelSheet data={data} editId={s.editId} />}
+      {s?.type === 'oil' && <OilSheet data={data} editId={s.editId} />}
     </>
   )
 }
@@ -32,6 +35,8 @@ function ActionsSheet({ open }: { open: boolean }) {
     { icon: <Siren />, label: 'ثبت علامت یا خرابی', desc: 'صدا، لرزش، نشتی، چراغ', color: '#e5484d', go: () => openSheet({ type: 'symptom' }) },
     { icon: <Droplets />, label: 'چک مایعات و ظاهر', desc: 'آب، روغن، باد لاستیک', color: '#06b6d4', go: () => openSheet({ type: 'check' }) },
     { icon: <Fuel />, label: 'سوخت‌گیری', desc: 'لیتر، کیلومتر، مبلغ', color: '#f5a524', go: () => openSheet({ type: 'fuel' }) },
+    { icon: <Droplet />, label: 'اضافه کردن روغن', desc: 'کسری روغن بین تعویض‌ها', color: '#a16207', go: () => openSheet({ type: 'oil' }) },
+    { icon: <ClipboardList />, label: 'لیست تعمیرگاه', desc: 'آماده برای ارسال', color: '#0ea5e9', go: () => { closeSheet(); location.hash = '#/visit' } },
     { icon: <FileBadge />, label: 'بیمه و مدارک', desc: 'تاریخ انقضا', color: '#8b5cf6', go: () => { closeSheet(); location.hash = '#/documents' } },
   ]
   return (
@@ -100,6 +105,12 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
   const [date, setDate] = useState(editing?.date ?? Date.now())
   const [costs, setCosts] = useState<Record<string, number | undefined>>(editing ? { [editing.partId]: editing.cost } : {})
   const [brand, setBrand] = useState<Record<string, string>>(editing ? { [editing.partId]: editing.brand ?? '' } : {})
+  const [warranty, setWarranty] = useState<Record<string, number | undefined>>(editing ? { [editing.partId]: editing.warrantyMonths } : {})
+  const shops = useLiveQuery(() => db.shops.toArray(), [], [])
+  const applicableIds = new Set(data.parts.map((p) => p.id))
+  const bundles = [...BUILTIN_BUNDLES, ...data.settings.customBundles]
+    .map((b) => ({ ...b, partIds: b.partIds.filter((id) => applicableIds.has(id)) }))
+    .filter((b) => b.partIds.length >= 2 || data.settings.customBundles.some((c) => c.id === b.id))
   const [shop, setShop] = useState(editing?.shop ?? '')
   const [notes, setNotes] = useState(editing?.notes ?? '')
   const [q, setQ] = useState('')
@@ -120,13 +131,13 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
   async function save() {
     if (km === undefined || !selected.length) return
     if (editing) {
-      await db.services.update(editing.id!, { km, date, cost: costs[editing.partId], brand: brand[editing.partId] || undefined, shop: shop || undefined, notes: notes || undefined })
+      await db.services.update(editing.id!, { km, date, cost: costs[editing.partId], brand: brand[editing.partId] || undefined, warrantyMonths: warranty[editing.partId], shop: shop || undefined, notes: notes || undefined })
       await savePhotos('service', anchorId!, photos)
       toast('ویرایش شد ✓')
     } else {
       const visitId = newVisitId()
       const ids = (await db.services.bulkAdd(
-        selected.map((partId) => ({ carId: data.car.id!, partId, km, date, visitId, cost: costs[partId], brand: brand[partId] || undefined, shop: shop || undefined, notes: notes || undefined })),
+        selected.map((partId) => ({ carId: data.car.id!, partId, km, date, visitId, cost: costs[partId], brand: brand[partId] || undefined, warrantyMonths: warranty[partId], shop: shop || undefined, notes: notes || undefined })),
         { allKeys: true },
       )) as number[]
       // Photos belong to the visit; they hang off its first record
@@ -134,6 +145,13 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
       toast(`${fmtNum(selected.length)} مورد ثبت شد ✓`)
     }
     closeSheet()
+  }
+
+  async function saveBundle() {
+    const name = prompt('نام این سرویس آماده (مثلاً سرویس کامل بهاره):')
+    if (!name?.trim()) return
+    await updateSettings({ customBundles: [...data.settings.customBundles, { id: `c-${Date.now().toString(36)}`, name: name.trim(), partIds: selected }] })
+    toast('سرویس آماده ذخیره شد ✓')
   }
 
   async function remove() {
@@ -180,6 +198,20 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
 
       {!editing && (
         <>
+          <p className="mb-2 text-sm font-semibold text-muted">سرویس‌های آماده</p>
+          <div className="no-scrollbar -mx-5 mb-4 flex gap-2 overflow-x-auto px-5">
+            {bundles.map((b) => {
+              const on = b.partIds.length > 0 && b.partIds.every((id) => selected.includes(id))
+              return (
+                <Chip key={b.id} active={on} onClick={() => setSelected((sel) => (on ? sel.filter((id) => !b.partIds.includes(id)) : [...new Set([...sel, ...b.partIds])]))}>
+                  {b.name}
+                </Chip>
+              )
+            })}
+            {selected.length >= 2 && (
+              <button onClick={saveBundle} className="shrink-0 rounded-full border border-dashed border-accent px-3.5 text-sm font-semibold text-accent">+ ذخیره‌ی انتخاب فعلی</button>
+            )}
+          </div>
           <p className="mb-2 text-sm font-semibold text-muted">چه چیزهایی عوض شد؟ (چند مورد را با هم انتخاب کن)</p>
           <div className="relative mb-2">
             <Search className="pointer-events-none absolute start-3 top-1/2 size-5 -translate-y-1/2 text-muted" />
@@ -216,14 +248,15 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
 
       {selected.length > 0 && (
         <>
-          <p className="mb-2 text-sm font-semibold text-muted">هزینه و برند (اختیاری)</p>
+          <p className="mb-2 text-sm font-semibold text-muted">هزینه، برند و گارانتی (اختیاری)</p>
           <div className="mb-4 space-y-2">
             {selected.map((id) => (
               <div key={id} className="rounded-2xl bg-surface p-3 ring-1 ring-line">
                 <p className="mb-2 font-semibold">{byId[id]?.name ?? id}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <NumberInput value={costs[id]} onChange={(v) => setCosts((c) => ({ ...c, [id]: v }))} placeholder="هزینه (تومان)" />
+                <div className="grid grid-cols-[1.3fr_1fr_0.9fr] gap-2">
+                  <NumberInput value={costs[id]} onChange={(v) => setCosts((c) => ({ ...c, [id]: v }))} placeholder="هزینه" />
                   <TextInput value={brand[id] ?? ''} onChange={(e) => setBrand((b) => ({ ...b, [id]: e.target.value }))} placeholder="برند" />
+                  <NumberInput value={warranty[id]} onChange={(v) => setWarranty((w) => ({ ...w, [id]: v || undefined }))} placeholder="گارانتی ماه" />
                 </div>
               </div>
             ))}
@@ -231,7 +264,8 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
         </>
       )}
       <Field label="تعمیرگاه / فروشگاه">
-        <TextInput value={shop} onChange={(e) => setShop(e.target.value)} placeholder="اختیاری" />
+        <TextInput value={shop} onChange={(e) => setShop(e.target.value)} placeholder="اختیاری" list="shop-names" />
+        <datalist id="shop-names">{shops.map((sh) => <option key={sh.id} value={sh.name} />)}</datalist>
       </Field>
       <Field label="یادداشت">
         <TextArea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="مثلاً نوع روغن، گرانروی…" />
@@ -418,6 +452,53 @@ function FuelSheet({ data, editId }: { data: ActiveCar; editId?: number }) {
       </Field>
       <Field label="تاریخ"><DateInput value={date} onChange={setDate} /></Field>
       <Field label="جایگاه"><TextInput value={station} onChange={(e) => setStation(e.target.value)} placeholder="اختیاری" /></Field>
+    </Sheet>
+  )
+}
+
+function OilSheet({ data, editId }: { data: ActiveCar; editId?: number }) {
+  const editing = editId !== undefined ? data.oil.find((o) => o.id === editId) : undefined
+  const latest = latestKm(data.readings, data.services)
+  const [km, setKm] = useState<number | undefined>(editing?.km ?? latest?.km)
+  const [liters, setLiters] = useState<number | undefined>(editing?.liters)
+  const [date, setDate] = useState(editing?.date ?? Date.now())
+
+  async function save() {
+    if (km === undefined || !liters) return
+    const rec = { carId: data.car.id!, km, liters, date }
+    if (editing) await db.oil.update(editing.id!, rec)
+    else await db.oil.add(rec)
+    toast('ثبت شد ✓')
+    closeSheet()
+  }
+
+  async function remove() {
+    if (!editing || !confirm('حذف شود؟')) return
+    await db.oil.delete(editing.id!)
+    closeSheet()
+  }
+
+  return (
+    <Sheet
+      open
+      onClose={closeSheet}
+      title="اضافه کردن روغن (کسری)"
+      footer={
+        <div className="flex gap-2">
+          {editing && <Button variant="danger" onClick={remove} aria-label="حذف"><Trash2 className="size-5" /></Button>}
+          <Button className="flex-1" disabled={km === undefined || !liters} onClick={save}>ذخیره</Button>
+        </div>
+      }
+    >
+      <p className="mb-4 text-sm leading-6 text-muted">هر بار بین دو تعویض روغن، روغن اضافه کردی اینجا ثبت کن تا میزان روغن‌سوزی موتور محاسبه شود.</p>
+      <Field label="مقدار (لیتر)">
+        <NumberInput decimals autoFocus={!editing} value={liters} onChange={setLiters} placeholder="۰.۵" />
+      </Field>
+      <div className="-mt-2 mb-4 flex gap-2">
+        {[0.25, 0.5, 1].map((v) => <Chip key={v} active={liters === v} onClick={() => setLiters(v)}>{toFa(v)} لیتر</Chip>)}
+      </div>
+      <Field label="کیلومتر"><NumberInput value={km} onChange={setKm} suffix="کیلومتر" /></Field>
+      <Field label="تاریخ"><DateInput value={date} onChange={setDate} /></Field>
     </Sheet>
   )
 }

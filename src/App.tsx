@@ -20,6 +20,9 @@ import { DocumentsScreen } from './screens/Documents'
 import { FuelScreen } from './screens/Fuel'
 import { GuideScreen } from './screens/Guide'
 import { ReportScreen } from './screens/Report'
+import { ForecastScreen, TripScreen, VisitScreen } from './screens/Tools'
+import { ShopsScreen } from './screens/Shops'
+import { SummaryScreen } from './screens/Summary'
 
 export default function App() {
   const cars = useCars()
@@ -118,6 +121,26 @@ export default function App() {
       break
     case 'report':
       screen = <ReportScreen data={data} />
+      tab = 'more'
+      break
+    case 'forecast':
+      screen = <ForecastScreen data={data} />
+      tab = 'more'
+      break
+    case 'visit':
+      screen = <VisitScreen data={data} />
+      tab = 'more'
+      break
+    case 'trip':
+      screen = <TripScreen data={data} />
+      tab = 'more'
+      break
+    case 'shops':
+      screen = <ShopsScreen />
+      tab = 'more'
+      break
+    case 'summary':
+      screen = <SummaryScreen data={data} />
       tab = 'more'
       break
     default:

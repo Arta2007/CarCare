@@ -80,6 +80,8 @@ export interface ServiceRecord {
   notes?: string
   /** Groups parts logged in one visit (e.g. oil + oil filter) */
   visitId?: string
+  /** Warranty from the shop/seller, counted from `date` */
+  warrantyMonths?: number
 }
 
 export type SymptomCategory =
@@ -146,6 +148,31 @@ export interface FuelLog {
   station?: string
 }
 
+/** Oil added between changes — the basis for oil-consumption tracking */
+export interface OilTopup {
+  id?: number
+  carId: number
+  date: number
+  km: number
+  liters: number
+}
+
+export interface Shop {
+  id?: number
+  name: string
+  phone?: string
+  specialty?: string
+  address?: string
+  notes?: string
+  rating?: number
+}
+
+export interface ServiceBundle {
+  id: string
+  name: string
+  partIds: string[]
+}
+
 export type PhotoOwner = 'service' | 'symptom' | 'document' | 'fuel'
 
 export interface Photo {
@@ -184,6 +211,12 @@ export interface Settings {
   lastPushSync?: number
   /** Monthly subsidised fuel-card quota in litres */
   fuelQuota: number
+  /** User-saved quick-log bundles (in addition to the built-in ones) */
+  customBundles: ServiceBundle[]
+  /** Seasonal tips the user ticked off, keyed "<jy>-<tipId>" */
+  seasonalDone: string[]
+  /** Expected monthly price rise used by the cost forecast, in percent */
+  inflationMonthly: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -200,4 +233,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupReminderDays: 14,
   developer: false,
   fuelQuota: 60,
+  customBundles: [],
+  seasonalDone: [],
+  inflationMonthly: 3,
 }

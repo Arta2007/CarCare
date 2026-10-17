@@ -1,13 +1,16 @@
 import { useMemo } from 'react'
-import { AlertTriangle, BookOpen, CarFront, ChevronDown, Droplets, FileBadge, FileDown, Fuel, Gauge, Share, Siren, Sparkles, Wrench } from 'lucide-react'
+import { AlertTriangle, BookOpen, CalendarDays, CarFront, Check, ChevronDown, ClipboardList, Droplet, Droplets, FileBadge, FileDown, Fuel, Gauge, Lightbulb, Plane, Share, ShieldCheck, Siren, Sparkles, TrendingUp, Wrench } from 'lucide-react'
 import { currentDocuments, docName, docUrgency } from '../lib/documents'
 import { fuelStats } from '../lib/fuel'
+import { activeWarranties, learnedIntervals, oilConsumption } from '../lib/insights'
+import { SEASONAL_TIPS } from '../data/extras'
+import { updateSettings } from '../lib/db'
 import type { ActiveCar } from '../lib/store'
 import { allStatuses, dailyKm, estimateKmNow, healthScore, latestKm, type PartStatus } from '../lib/maintenance'
 import { checkDue } from '../lib/schedule'
 import { openSheet } from '../lib/sheets'
 import { navigate } from '../lib/router'
-import { fmtDate, fmtKm, fmtNum, fmtRelDays, toFa } from '../lib/format'
+import { addMonths, fmtDate, fmtKm, fmtNum, fmtRelDays, fromJalali, jalali, toFa } from '../lib/format'
 import { isIOS, isStandalone } from '../lib/push'
 import { SYMPTOM_CATEGORIES } from '../data/catalog'
 import { Card, cx, Progress, Ring, SectionTitle, STATE_META, StateBadge } from '../components/ui'
@@ -28,6 +31,9 @@ export function HomeScreen({ data, onSwitchCar }: { data: ActiveCar; onSwitchCar
   const showInstall = isIOS() && !isStandalone()
   const expiring = currentDocuments(data.documents).filter((d) => d.expiresAt - data.now < 30 * 86_400_000)
   const fuel = fuelStats(data.fuel, data.now)
+  const oil = oilConsumption(data, data.oil)
+  const learned = learnedIntervals(data)
+  const warranties = activeWarranties(data).filter((w) => w.expiresAt - data.now < 30 * 86_400_000)
 
   return (
     <div className="pb-tabbar">
@@ -100,9 +106,45 @@ export function HomeScreen({ data, onSwitchCar }: { data: ActiveCar; onSwitchCar
         <div className="mt-3 grid grid-cols-4 gap-2">
           <Tool icon={<Fuel className="size-5" />} label={fuel.avg ? `${toFa(fuel.avg.toFixed(1))} لیتر` : 'سوخت'} color="#f5a524" onClick={() => navigate('fuel')} />
           <Tool icon={<FileBadge className="size-5" />} label="مدارک" color="#8b5cf6" onClick={() => navigate('documents')} dot={expiring.length > 0} />
+          <Tool icon={<ClipboardList className="size-5" />} label="تعمیرگاه" color="#0ea5e9" onClick={() => navigate('visit')} />
+          <Tool icon={<TrendingUp className="size-5" />} label="پیش‌بینی" color="#14b8a6" onClick={() => navigate('forecast')} />
+          <Tool icon={<CalendarDays className="size-5" />} label="خلاصه ماه" color="#ec4899" onClick={() => navigate('summary')} />
+          <Tool icon={<Plane className="size-5" />} label="سفر" color="#6366f1" onClick={() => navigate('trip')} />
           <Tool icon={<BookOpen className="size-5" />} label="راهنما" color="#e5484d" onClick={() => navigate('guide')} />
-          <Tool icon={<FileDown className="size-5" />} label="گزارش" color="#0ea5e9" onClick={() => navigate('report')} />
+          <Tool icon={<FileDown className="size-5" />} label="گزارش" color="#64748b" onClick={() => navigate('report')} />
         </div>
+
+        <SeasonalCard data={data} />
+
+        {oil.level === 'high' && (
+          <Card onClick={() => navigate('part/engine-oil')} className="mt-3 flex items-center gap-3 p-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-danger/15 text-danger"><Droplet className="size-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold">روغن‌سوزی زیاد</span>
+              <span className="block text-sm text-muted">{toFa(oil.perThousand!.toFixed(2))} لیتر در هر ۱۰۰۰ کیلومتر — بررسی موتور پیشنهاد می‌شود</span>
+            </span>
+          </Card>
+        )}
+
+        {warranties.map((w) => (
+          <Card key={w.record.id} onClick={() => navigate(`part/${w.record.partId}`)} className="mt-3 flex items-center gap-3 p-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-ok/15 text-ok"><ShieldCheck className="size-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold">گارانتی {w.part?.name ?? ''} رو به پایان</span>
+              <span className="block text-sm text-muted">تا {fmtDate(w.expiresAt)} — اگر ایرادی دارد الان پیگیری کن</span>
+            </span>
+          </Card>
+        ))}
+
+        {learned.length > 0 && (
+          <Card onClick={() => navigate(`part/${learned[0].part.id}`)} className="mt-3 flex items-center gap-3 p-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent"><Lightbulb className="size-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-bold">{toFa(learned.length)} پیشنهاد از سابقه‌ی ماشینت</span>
+              <span className="block truncate text-sm text-muted">{learned.map((l) => l.part.name).join('، ')} — عمر واقعی با دوره فرق دارد</span>
+            </span>
+          </Card>
+        )}
 
         {expiring.map((d) => {
           const u = docUrgency(d, data.now)
@@ -184,6 +226,25 @@ function NextUp({ statuses }: { statuses: PartStatus[] }) {
   const next = statuses.filter((s) => s.dueDate).sort((a, b) => a.dueDate! - b.dueDate!)[0]
   if (!next) return null
   return <span className="block text-sm text-muted">بعدی: {next.part.name} — حدود {fmtDate(next.dueDate!)}</span>
+}
+
+/** Shows a seasonal checklist for a month after its date, until ticked off */
+function SeasonalCard({ data }: { data: ActiveCar }) {
+  const { jy } = jalali(data.now)
+  const active = SEASONAL_TIPS.flatMap((t) => [jy, jy - 1].map((y) => ({ t, y, at: fromJalali(y, t.jm, t.jd) })))
+    .find(({ t, y, at }) => at <= data.now && data.now < addMonths(at, 1) && !data.settings.seasonalDone.includes(`${y}-${t.id}`))
+  if (!active) return null
+  const { t, y } = active
+  return (
+    <Card className="mt-3 p-4">
+      <p className="flex items-center gap-2 font-bold"><Sparkles className="size-5 text-amber-500" />{t.title}</p>
+      <ul className="mt-2 list-disc space-y-1 ps-5 text-sm leading-6 text-muted">{t.items.map((i) => <li key={i}>{i}</li>)}</ul>
+      <div className="mt-3 flex gap-2">
+        <button onClick={() => updateSettings({ seasonalDone: [...data.settings.seasonalDone, `${y}-${t.id}`] })} className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-ok/15 text-sm font-bold text-ok"><Check className="size-4" />انجام دادم</button>
+        <button onClick={() => openSheet({ type: 'check' })} className="min-h-10 flex-1 rounded-xl bg-surface-2 text-sm font-semibold">ثبت چک</button>
+      </div>
+    </Card>
+  )
 }
 
 function Tool({ icon, label, color, onClick, dot }: { icon: React.ReactNode; label: string; color: string; onClick: () => void; dot?: boolean }) {

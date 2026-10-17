@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { BellRing, BookOpen, CheckCircle2, Pencil, Plus, RotateCcw, Siren, Trash2 } from 'lucide-react'
 import type { ActiveCar } from '../lib/store'
 import { db } from '../lib/db'
+import { relatedStatuses } from '../lib/insights'
+import { DueRow } from './Home'
 import { deletePhotos, PhotoStrip } from '../components/photos'
 import { openSheet } from '../lib/sheets'
 import { navigate } from '../lib/router'
@@ -131,6 +133,8 @@ export function SymptomDetail({ data, id }: { data: ActiveCar; id: number }) {
           )}
         </Card>
 
+        {s.status === 'open' && <RelatedParts data={data} symptom={s} />}
+
         {s.status === 'open' ? (
           <>
             <Card className="p-4">
@@ -152,6 +156,20 @@ export function SymptomDetail({ data, id }: { data: ActiveCar; id: number }) {
         )}
         <Button variant="danger" className="w-full" onClick={remove}><Trash2 className="size-5" />حذف</Button>
       </div>
+    </div>
+  )
+}
+
+/** Parts that commonly cause this kind of symptom, with how worn they are */
+function RelatedParts({ data, symptom }: { data: ActiveCar; symptom: Symptom }) {
+  const related = relatedStatuses(symptom, data).slice(0, 5)
+  if (!related.length) return null
+  return (
+    <div>
+      <p className="mb-2 mt-1 px-1 text-sm font-bold text-muted">قطعات مرتبط — شاید علتش این‌ها باشد</p>
+      <Card className="divide-y divide-line overflow-hidden">
+        {related.map((r) => <DueRow key={r.part.id} s={r} />)}
+      </Card>
     </div>
   )
 }

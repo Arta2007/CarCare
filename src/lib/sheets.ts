@@ -7,6 +7,7 @@ export type SheetState =
   | { type: 'symptom'; editId?: number; preset?: Partial<Pick<Symptom, 'title' | 'category' | 'severity' | 'description'>> }
   | { type: 'check' }
   | { type: 'fuel'; editId?: number }
+  | { type: 'oil'; editId?: number }
   | { type: 'actions' }
   | null
 

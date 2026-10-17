@@ -4,6 +4,7 @@ import type { ActiveCar } from '../lib/store'
 import { db } from '../lib/db'
 import { addMonths, fmtDate, fmtToman } from '../lib/format'
 import { currentDocuments, DOC_TYPES, docName, docUrgency } from '../lib/documents'
+import { activeWarranties } from '../lib/insights'
 import type { CarDocument, DocType } from '../lib/types'
 import { deletePhotos, loadPhotos, PhotoPicker, PhotoStrip, savePhotos, type PhotoItem } from '../components/photos'
 import { Button, Card, Chip, cx, DateInput, Empty, Field, NumberInput, PageHeader, SectionTitle, Sheet, TextArea, TextInput, toast } from '../components/ui'
@@ -12,6 +13,7 @@ export function DocumentsScreen({ data }: { data: ActiveCar }) {
   const [editing, setEditing] = useState<Partial<CarDocument> | null>(null)
   const current = currentDocuments(data.documents)
   const currentIds = new Set(current.map((d) => d.id))
+  const warranties = activeWarranties(data)
   const past = data.documents.filter((d) => !currentIds.has(d.id)).sort((a, b) => b.expiresAt - a.expiresAt)
 
   const renew = (d: CarDocument) =>
@@ -21,7 +23,7 @@ export function DocumentsScreen({ data }: { data: ActiveCar }) {
     <div className="pb-tabbar">
       <PageHeader
         back
-        title="مدارک و بیمه"
+        title="مدارک، بیمه و گارانتی"
         subtitle={data.car.name}
         action={<button aria-label="افزودن" onClick={() => setEditing({})} className="grid size-10 place-items-center rounded-full bg-accent text-accent-fg"><Plus className="size-6" /></button>}
       />
@@ -57,6 +59,19 @@ export function DocumentsScreen({ data }: { data: ActiveCar }) {
               )
             })}
           </div>
+        )}
+        {warranties.length > 0 && (
+          <>
+            <SectionTitle>گارانتی‌های فعال</SectionTitle>
+            <Card className="divide-y divide-line overflow-hidden">
+              {warranties.map((w) => (
+                <button key={w.record.id} onClick={() => (location.hash = `#/part/${w.record.partId}`)} className="block w-full px-4 py-3 text-start active:bg-surface-2">
+                  <span className="block font-semibold">{w.part?.name ?? w.record.partId}{w.record.brand ? ` (${w.record.brand})` : ''}</span>
+                  <span className="block text-xs text-muted">تا {fmtDate(w.expiresAt)}{w.record.shop ? ` • ${w.record.shop}` : ''}</span>
+                </button>
+              ))}
+            </Card>
+          </>
         )}
         {past.length > 0 && (
           <>

@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { History, Info, Pencil, Plus, ShieldAlert } from 'lucide-react'
+import { Droplet, History, Info, Lightbulb, Pencil, Plus, ShieldAlert } from 'lucide-react'
+import { learnedIntervals, oilConsumption } from '../lib/insights'
 import type { ActiveCar } from '../lib/store'
 import { allStatuses, partStatus, visitAnchorId } from '../lib/maintenance'
 import { PhotoStrip } from '../components/photos'
 import { openSheet } from '../lib/sheets'
 import { CATEGORIES } from '../data/catalog'
-import { fmtDate, fmtKm, fmtNum, fmtRelDays, fmtToman, toFa } from '../lib/format'
+import { addMonths, fmtDate, fmtKm, fmtNum, fmtRelDays, fmtToman, toFa } from '../lib/format'
 import type { CategoryId } from '../lib/types'
 import { Button, Card, Chip, Empty, Field, NumberInput, PageHeader, Progress, SectionTitle, StateBadge, toast } from '../components/ui'
 import { db } from '../lib/db'
@@ -113,6 +114,8 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
           </Button>
         </Card>
 
+        <LearnedSuggestion data={data} partId={partId} />
+        {partId === 'engine-oil' && <OilConsumptionCard data={data} />}
         <IntervalEditor data={data} partId={partId} />
 
         <SectionTitle>مشخصات</SectionTitle>
@@ -140,6 +143,7 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
                     {r.brand && ` • ${r.brand}`}
                     {r.shop && ` • ${r.shop}`}
                     {r.cost ? ` • ${fmtToman(r.cost)}` : ''}
+                    {r.warrantyMonths ? <WarrantyTag date={r.date} months={r.warrantyMonths} /> : null}
                   </span>
                   {r.notes && <span className="block truncate text-xs text-muted">{r.notes}</span>}
                   <span className="mt-1.5 block"><PhotoStrip owner="service" ownerId={visitAnchorId(r, data.services)} /></span>
@@ -151,6 +155,67 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
         )}
       </div>
     </div>
+  )
+}
+
+function WarrantyTag({ date, months }: { date: number; months: number }) {
+  const end = addMonths(date, months)
+  const active = end > Date.now()
+  return <span className={active ? 'font-semibold text-ok' : ''}> • گارانتی {active ? `تا ${fmtDate(end)}` : 'تمام شده'}</span>
+}
+
+/** Offers to adopt the interval this car actually achieves */
+function LearnedSuggestion({ data, partId }: { data: ActiveCar; partId: string }) {
+  const s = learnedIntervals(data).find((l) => l.part.id === partId)
+  if (!s) return null
+  const shorter = s.suggestedKm < (s.part.intervalKm ?? 0)
+  async function apply() {
+    await db.cars.update(data.car.id!, { overrides: { ...(data.car.overrides ?? {}), [partId]: { ...data.car.overrides?.[partId], intervalKm: s!.suggestedKm, intervalMonths: data.parts.find((p) => p.id === partId)?.intervalMonths } } })
+    toast('دوره به‌روز شد ✓')
+  }
+  return (
+    <Card className="mt-3 border-0 bg-accent/10 p-4 ring-accent/20">
+      <p className="flex items-center gap-2 font-bold text-accent"><Lightbulb className="size-5" />یاد گرفتم از سابقه‌ی ماشینت</p>
+      <p className="mt-1 text-sm leading-6">
+        این قطعه در ماشین تو به‌طور میانگین <b>{fmtKm(s.avgKm)}</b> عمر کرده ({toFa(s.samples)} بار)، در حالی که دوره‌ی فعلی {fmtKm(s.part.intervalKm!)} است.
+        {shorter ? ' بهتر است زودتر یادآوری کنم.' : ' شاید بشود دیرتر عوضش کرد — با نظر تعمیرکار.'}
+      </p>
+      <Button className="mt-3 w-full" variant={shorter ? 'primary' : 'secondary'} onClick={apply}>دوره را {fmtKm(s.suggestedKm)} کن</Button>
+    </Card>
+  )
+}
+
+function OilConsumptionCard({ data }: { data: ActiveCar }) {
+  const c = oilConsumption(data, data.oil)
+  const meta = {
+    normal: { color: 'var(--ok)', text: 'طبیعی' },
+    watch: { color: 'var(--warn)', text: 'زیر نظر بگیر — برای موتور کارکرده قابل قبول است' },
+    high: { color: 'var(--danger)', text: 'زیاد — تست کمپرس و بررسی رینگ/گیت سوپاپ پیشنهاد می‌شود' },
+    unknown: { color: 'var(--muted)', text: 'برای محاسبه حداقل ۵۰۰ کیلومتر بعد از تعویض لازم است' },
+  }[c.level]
+  const list = [...data.oil].sort((a, b) => b.date - a.date).slice(0, 5)
+  return (
+    <Card className="mt-3 p-4">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-2 font-bold"><Droplet className="size-5 text-amber-600" />روغن‌سوزی</p>
+        <button onClick={() => openSheet({ type: 'oil' })} className="rounded-lg bg-surface-2 px-3 py-1.5 text-sm font-semibold">+ اضافه کردم</button>
+      </div>
+      <p className="mt-2 text-2xl font-black" style={{ color: meta.color }}>
+        {c.perThousand !== undefined ? toFa(c.perThousand.toFixed(2)) : '—'}<span className="ms-1 text-xs font-semibold text-muted">لیتر در هر ۱۰۰۰ کیلومتر</span>
+      </p>
+      <p className="text-sm" style={{ color: meta.color }}>{meta.text}</p>
+      {c.liters > 0 && <p className="mt-1 text-xs text-muted">{toFa(c.liters)} لیتر از آخرین تعویض ({fmtKm(c.km)})</p>}
+      {list.length > 0 && (
+        <div className="mt-3 divide-y divide-line border-t border-line">
+          {list.map((o) => (
+            <button key={o.id} onClick={() => openSheet({ type: 'oil', editId: o.id })} className="flex w-full justify-between py-2 text-sm">
+              <span>{toFa(o.liters)} لیتر</span>
+              <span className="text-muted">{fmtKm(o.km)} • {fmtDate(o.date)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
