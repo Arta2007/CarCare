@@ -1,0 +1,17 @@
+# Optional push-notification relay (see README → «اعلان پوش»).
+# Secrets (VAPID keys) are set with `npx wrangler secret put …` and never committed.
+name = "carcare-push"
+main = "worker/index.ts"
+compatibility_date = "2026-09-01"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "PUSH_KV"
+# Paste the id printed by: npx wrangler kv namespace create PUSH_KV
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+[vars]
+# Set to your GitHub Pages origin to lock the API to your app, e.g. "https://yourname.github.io"
+ALLOWED_ORIGIN = "*"
