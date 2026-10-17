@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { BellRing, CheckCircle2, Pencil, Plus, RotateCcw, Siren, Trash2 } from 'lucide-react'
+import { BellRing, BookOpen, CheckCircle2, Pencil, Plus, RotateCcw, Siren, Trash2 } from 'lucide-react'
 import type { ActiveCar } from '../lib/store'
 import { db } from '../lib/db'
+import { deletePhotos, PhotoStrip } from '../components/photos'
 import { openSheet } from '../lib/sheets'
 import { navigate } from '../lib/router'
 import { SYMPTOM_CATEGORIES } from '../data/catalog'
@@ -27,6 +28,13 @@ export function SymptomsScreen({ data }: { data: ActiveCar }) {
         }
       />
       <div className="px-4">
+        <Card onClick={() => navigate('guide')} className="mb-3 flex items-center gap-3 p-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-danger/15 text-danger"><BookOpen className="size-5" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-bold">راهنمای عیب‌یابی</span>
+            <span className="block text-xs text-muted">معنی چراغ‌های داشبورد، صداها، بوها و دود</span>
+          </span>
+        </Card>
         <Segmented value={tab} onChange={setTab} options={[{ value: 'open', label: `باز (${toFa(data.symptoms.filter((s) => s.status === 'open').length)})` }, { value: 'resolved', label: 'برطرف‌شده' }]} />
         {!list.length ? (
           <Empty
@@ -93,6 +101,7 @@ export function SymptomDetail({ data, id }: { data: ActiveCar; id: number }) {
   async function remove() {
     if (!confirm('این مورد حذف شود؟')) return
     await db.symptoms.delete(id)
+    await deletePhotos('symptom', id)
     history.back()
   }
 
@@ -112,6 +121,7 @@ export function SymptomDetail({ data, id }: { data: ActiveCar; id: number }) {
         <Card className="p-4">
           <span className={cx('rounded-full px-2 py-0.5 text-xs font-bold', sev.cls)}>{sev.label}</span>
           {s.description && <p className="mt-3 whitespace-pre-wrap leading-7">{s.description}</p>}
+          <div className="mt-3"><PhotoStrip owner="symptom" ownerId={id} /></div>
           <p className="mt-3 text-sm text-muted">
             مشاهده: {fmtDate(s.date)}
             {s.km ? ` • ${fmtKm(s.km)}` : ''}

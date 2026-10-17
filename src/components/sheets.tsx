@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
-import { Check, ClipboardCheck, Droplets, Gauge, Search, Siren, Trash2, Wrench } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, ClipboardCheck, Droplets, FileBadge, Fuel, Gauge, Search, Siren, Trash2, Wrench } from 'lucide-react'
 import { db } from '../lib/db'
 import { closeSheet, openSheet, useSheet } from '../lib/sheets'
 import { newVisitId, type ActiveCar } from '../lib/store'
 import { allStatuses, estimateKmNow, latestKm } from '../lib/maintenance'
 import { CATEGORIES, CHECK_ITEMS, SYMPTOM_CATEGORIES } from '../data/catalog'
 import { DAY, fmtDate, fmtKm, fmtNum, fmtRelDays } from '../lib/format'
-import type { CategoryId, SymptomCategory } from '../lib/types'
+import type { CategoryId, Symptom, SymptomCategory } from '../lib/types'
+import { loadPhotos, PhotoPicker, savePhotos, type PhotoItem } from './photos'
+import { visitAnchorId } from '../lib/maintenance'
 import { Button, Chip, cx, DateInput, Field, NumberInput, Segmented, Sheet, TextArea, TextInput, toast } from './ui'
 
 export function SheetHost({ data }: { data: ActiveCar }) {
@@ -16,8 +18,9 @@ export function SheetHost({ data }: { data: ActiveCar }) {
       <ActionsSheet open={s?.type === 'actions'} />
       {s?.type === 'odometer' && <OdometerSheet data={data} />}
       {s?.type === 'service' && <ServiceSheet data={data} partIds={s.partIds} editId={s.editId} />}
-      {s?.type === 'symptom' && <SymptomSheet data={data} editId={s.editId} />}
+      {s?.type === 'symptom' && <SymptomSheet data={data} editId={s.editId} preset={s.preset} />}
       {s?.type === 'check' && <CheckSheet data={data} />}
+      {s?.type === 'fuel' && <FuelSheet data={data} editId={s.editId} />}
     </>
   )
 }
@@ -28,6 +31,8 @@ function ActionsSheet({ open }: { open: boolean }) {
     { icon: <Wrench />, label: 'ثبت تعویض / سرویس', desc: 'روغن، فیلتر، لنت و…', color: '#17b26a', go: () => openSheet({ type: 'service' }) },
     { icon: <Siren />, label: 'ثبت علامت یا خرابی', desc: 'صدا، لرزش، نشتی، چراغ', color: '#e5484d', go: () => openSheet({ type: 'symptom' }) },
     { icon: <Droplets />, label: 'چک مایعات و ظاهر', desc: 'آب، روغن، باد لاستیک', color: '#06b6d4', go: () => openSheet({ type: 'check' }) },
+    { icon: <Fuel />, label: 'سوخت‌گیری', desc: 'لیتر، کیلومتر، مبلغ', color: '#f5a524', go: () => openSheet({ type: 'fuel' }) },
+    { icon: <FileBadge />, label: 'بیمه و مدارک', desc: 'تاریخ انقضا', color: '#8b5cf6', go: () => { closeSheet(); location.hash = '#/documents' } },
   ]
   return (
     <Sheet open={open} onClose={closeSheet} title="ثبت جدید">
@@ -99,6 +104,11 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
   const [notes, setNotes] = useState(editing?.notes ?? '')
   const [q, setQ] = useState('')
   const [cat, setCat] = useState<CategoryId | 'all'>('all')
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  const anchorId = editing ? visitAnchorId(editing, data.services) : undefined
+  useEffect(() => {
+    if (anchorId) loadPhotos('service', anchorId).then(setPhotos)
+  }, [anchorId])
 
   const statuses = useMemo(() => allStatuses(data), [data])
   const byId = useMemo(() => Object.fromEntries(data.parts.map((p) => [p.id, p])), [data.parts])
@@ -111,12 +121,16 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
     if (km === undefined || !selected.length) return
     if (editing) {
       await db.services.update(editing.id!, { km, date, cost: costs[editing.partId], brand: brand[editing.partId] || undefined, shop: shop || undefined, notes: notes || undefined })
+      await savePhotos('service', anchorId!, photos)
       toast('ویرایش شد ✓')
     } else {
       const visitId = newVisitId()
-      await db.services.bulkAdd(
+      const ids = (await db.services.bulkAdd(
         selected.map((partId) => ({ carId: data.car.id!, partId, km, date, visitId, cost: costs[partId], brand: brand[partId] || undefined, shop: shop || undefined, notes: notes || undefined })),
-      )
+        { allKeys: true },
+      )) as number[]
+      // Photos belong to the visit; they hang off its first record
+      if (photos.length) await savePhotos('service', Math.min(...ids), photos)
       toast(`${fmtNum(selected.length)} مورد ثبت شد ✓`)
     }
     closeSheet()
@@ -125,6 +139,12 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
   async function remove() {
     if (!editing || !confirm('این رکورد حذف شود؟')) return
     await db.services.delete(editing.id!)
+    if (anchorId === editing.id) {
+      // Hand the visit's photos to the next record of the same visit, or drop them
+      const next = data.services.filter((r) => r.visitId && r.visitId === editing.visitId && r.id !== editing.id).sort((a, b) => a.id! - b.id!)[0]
+      if (next) await db.photos.where('[owner+ownerId]').equals(['service', editing.id!]).modify({ ownerId: next.id })
+      else await db.photos.where('[owner+ownerId]').equals(['service', editing.id!]).delete()
+    }
     toast('حذف شد')
     closeSheet()
   }
@@ -216,26 +236,33 @@ function ServiceSheet({ data, partIds, editId }: { data: ActiveCar; partIds?: st
       <Field label="یادداشت">
         <TextArea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="مثلاً نوع روغن، گرانروی…" />
       </Field>
+      <PhotoPicker value={photos} onChange={setPhotos} label="عکس فاکتور یا قطعه" />
     </Sheet>
   )
 }
 
-function SymptomSheet({ data, editId }: { data: ActiveCar; editId?: number }) {
+function SymptomSheet({ data, editId, preset }: { data: ActiveCar; editId?: number; preset?: Partial<Pick<Symptom, 'title' | 'category' | 'severity' | 'description'>> }) {
   const editing = editId !== undefined ? data.symptoms.find((s) => s.id === editId) : undefined
   const latest = latestKm(data.readings, data.services)
-  const [title, setTitle] = useState(editing?.title ?? '')
-  const [category, setCategory] = useState<SymptomCategory>(editing?.category ?? 'sound')
-  const [severity, setSeverity] = useState<1 | 2 | 3>(editing?.severity ?? 2)
-  const [description, setDescription] = useState(editing?.description ?? '')
+  const [title, setTitle] = useState(editing?.title ?? preset?.title ?? '')
+  const [category, setCategory] = useState<SymptomCategory>(editing?.category ?? preset?.category ?? 'sound')
+  const [severity, setSeverity] = useState<1 | 2 | 3>(editing?.severity ?? preset?.severity ?? 2)
+  const [description, setDescription] = useState(editing?.description ?? preset?.description ?? '')
   const [km, setKm] = useState<number | undefined>(editing?.km ?? latest?.km)
   const [date, setDate] = useState(editing?.date ?? Date.now())
   const [remindAt, setRemindAt] = useState(editing?.remindAt ?? Date.now() + data.settings.symptomFollowupDays * DAY)
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  useEffect(() => {
+    if (editId) loadPhotos('symptom', editId).then(setPhotos)
+  }, [editId])
 
   async function save() {
     if (!title.trim()) return
     const rec = { carId: data.car.id!, title: title.trim(), category, severity, description: description || undefined, km, date, remindAt }
-    if (editing) await db.symptoms.update(editing.id!, rec)
-    else await db.symptoms.add({ ...rec, status: 'open' })
+    let id = editing?.id
+    if (id) await db.symptoms.update(id, rec)
+    else id = (await db.symptoms.add({ ...rec, status: 'open' })) as number
+    await savePhotos('symptom', id, photos)
     toast(editing ? 'ویرایش شد ✓' : `ثبت شد — ${fmtDate(remindAt)} یادآوری می‌کنم`)
     closeSheet()
   }
@@ -287,6 +314,7 @@ function SymptomSheet({ data, editId }: { data: ActiveCar; editId?: number }) {
       <Field label="کِی یادآوری کنم؟">
         <DateInput value={remindAt} onChange={setRemindAt} />
       </Field>
+      <PhotoPicker value={photos} onChange={setPhotos} label="عکس (روغن‌ریزی، چراغ داشبورد، محل خرابی)" />
     </Sheet>
   )
 }
@@ -334,6 +362,62 @@ function CheckSheet({ data }: { data: ActiveCar }) {
       <Field label="چیز غیرعادی دیدی؟" hint="اگر بنویسی، بعد از ذخیره فرم ثبت خرابی باز می‌شود">
         <TextArea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="مثلاً آب رادیاتور کم شده بود" />
       </Field>
+    </Sheet>
+  )
+}
+
+function FuelSheet({ data, editId }: { data: ActiveCar; editId?: number }) {
+  const editing = editId !== undefined ? data.fuel.find((f) => f.id === editId) : undefined
+  const latest = latestKm(data.readings, data.services)
+  const [km, setKm] = useState<number | undefined>(editing?.km)
+  const [liters, setLiters] = useState<number | undefined>(editing?.liters)
+  const [cost, setCost] = useState<number | undefined>(editing?.cost)
+  const [full, setFull] = useState(editing?.full ?? true)
+  const [date, setDate] = useState(editing?.date ?? Date.now())
+  const [station, setStation] = useState(editing?.station ?? '')
+  const tooLow = !editing && km !== undefined && latest !== undefined && km < latest.km && date >= latest.date
+
+  async function save() {
+    if (km === undefined || !liters) return
+    const rec = { carId: data.car.id!, km, liters, cost, full, date, station: station || undefined }
+    if (editing) await db.fuel.update(editing.id!, rec)
+    else await db.fuel.add(rec)
+    toast('سوخت‌گیری ثبت شد ✓')
+    closeSheet()
+  }
+
+  async function remove() {
+    if (!editing || !confirm('حذف شود؟')) return
+    await db.fuel.delete(editing.id!)
+    closeSheet()
+  }
+
+  return (
+    <Sheet
+      open
+      onClose={closeSheet}
+      title={editing ? 'ویرایش سوخت‌گیری' : 'ثبت سوخت‌گیری'}
+      footer={
+        <div className="flex gap-2">
+          {editing && <Button variant="danger" onClick={remove} aria-label="حذف"><Trash2 className="size-5" /></Button>}
+          <Button className="flex-1" disabled={km === undefined || !liters || tooLow} onClick={save}>ذخیره</Button>
+        </div>
+      }
+    >
+      <Field label="کیلومتر فعلی" hint={latest ? `آخرین کیلومتر ثبت‌شده: ${fmtKm(latest.km)}` : undefined}>
+        <NumberInput autoFocus={!editing} value={km} onChange={setKm} suffix="کیلومتر" />
+      </Field>
+      {tooLow && <p className="-mt-2 mb-3 text-sm font-semibold text-danger">از آخرین کیلومتر ثبت‌شده کمتر است.</p>}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="لیتر"><NumberInput decimals value={liters} onChange={setLiters} placeholder="۳۰" /></Field>
+        <Field label="مبلغ (تومان)"><NumberInput value={cost} onChange={setCost} /></Field>
+      </div>
+      {liters && cost ? <p className="-mt-2 mb-3 text-xs text-muted">هر لیتر حدود {fmtNum(cost / liters)} تومان</p> : null}
+      <Field label="باک را پر کردی؟" hint="برای محاسبه‌ی دقیق مصرف، تا جایی که می‌شود باک را پر کن">
+        <Segmented value={full ? 'full' : 'partial'} onChange={(v) => setFull(v === 'full')} options={[{ value: 'full', label: 'باک پر' }, { value: 'partial', label: 'بخشی' }]} />
+      </Field>
+      <Field label="تاریخ"><DateInput value={date} onChange={setDate} /></Field>
+      <Field label="جایگاه"><TextInput value={station} onChange={(e) => setStation(e.target.value)} placeholder="اختیاری" /></Field>
     </Sheet>
   )
 }

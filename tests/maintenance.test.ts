@@ -50,6 +50,17 @@ describe('dailyKm', () => {
   })
 })
 
+describe('dailyKm with back-dated entries', () => {
+  it('ignores approximate same-day records with a lower km', () => {
+    const readings = [
+      { carId: 1, km: 13_000, date: now - 30 * DAY },
+      { carId: 1, km: 15_000, date: now },
+    ]
+    const services = [{ carId: 1, partId: 'engine-oil', km: 11_000, date: now }]
+    expect(dailyKm(readings, services, DEFAULT_SETTINGS, now)).toBeCloseTo(66.67, 1)
+  })
+})
+
 describe('partStatus', () => {
   const oil = rana.parts.find((p) => p.id === 'engine-oil')!
   it('is unknown without a record', () => {

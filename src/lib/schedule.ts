@@ -1,8 +1,9 @@
-import type { CheckLog, Symptom } from './types'
+import type { CarDocument, CheckLog, Symptom } from './types'
+import { currentDocuments, docName } from './documents'
 import { allStatuses, latestKm, type CarContext } from './maintenance'
 import { DAY, fmtKm, fromJalali, jalali, monthLength, startOfDay } from './format'
 
-export type ReminderKind = 'check' | 'odometer' | 'part' | 'symptom' | 'backup'
+export type ReminderKind = 'check' | 'odometer' | 'part' | 'symptom' | 'backup' | 'document'
 
 export interface Reminder {
   /** Stable id so re-syncs don't duplicate notifications */
@@ -18,6 +19,7 @@ export interface Reminder {
 export interface ScheduleInput extends CarContext {
   checks: CheckLog[]
   symptoms: Symptom[]
+  documents?: CarDocument[]
   horizonDays: number
 }
 
@@ -112,6 +114,21 @@ export function buildSchedule(input: ScheduleInput): Reminder[] {
     if (at <= now) at = atHour(now + DAY, hour)
     for (let i = 0; i < 4; i++, at += 7 * DAY) {
       push({ id: `${carTag}-sym-${sym.id}-${i}`, at, kind: 'symptom', title: `پیگیری: ${sym.title}`, body: 'این مشکل هنوز هست؟ اگر برطرف شده در برنامه ببندش، وگرنه به تعمیرکار نشان بده.', url: `#/symptom/${sym.id}` })
+    }
+  }
+
+  // Insurance, inspection etc.: 30, 7 and 1 day(s) before, on the day, then weekly once expired.
+  for (const d of currentDocuments(input.documents ?? [])) {
+    const name = docName(d)
+    const exp = atHour(d.expiresAt, hour)
+    const did = `${carTag}-doc-${d.id}-${startOfDay(d.expiresAt)}`
+    for (const days of [30, 7, 1]) {
+      push({ id: `${did}-${days}`, at: exp - days * DAY, kind: 'document', title: `${name} رو به اتمام است`, body: `${name} ${car.name} ${days === 1 ? 'فردا' : `${days} روز دیگر`} منقضی می‌شود. برای تمدید اقدام کن.`, url: '#/documents' })
+    }
+    push({ id: `${did}-0`, at: exp, kind: 'document', title: `${name} امروز منقضی می‌شود`, body: 'اگر تمدید کرده‌ای، تاریخ جدید را در برنامه ثبت کن.', url: '#/documents' })
+    const firstNag = Math.max(exp + 7 * DAY, atHour(now + DAY, hour))
+    for (let i = 0; i < 4; i++) {
+      push({ id: `${did}-nag-${i}`, at: firstNag + i * 7 * DAY, kind: 'document', title: `${name} منقضی شده`, body: `${name} تمدید نشده است. رانندگی بدون آن جریمه دارد.`, url: '#/documents' })
     }
   }
 

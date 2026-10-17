@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { AlertTriangle, CarFront, ChevronDown, Droplets, Gauge, Share, Siren, Sparkles, Wrench } from 'lucide-react'
+import { AlertTriangle, BookOpen, CarFront, ChevronDown, Droplets, FileBadge, FileDown, Fuel, Gauge, Share, Siren, Sparkles, Wrench } from 'lucide-react'
+import { currentDocuments, docName, docUrgency } from '../lib/documents'
+import { fuelStats } from '../lib/fuel'
 import type { ActiveCar } from '../lib/store'
 import { allStatuses, dailyKm, estimateKmNow, healthScore, latestKm, type PartStatus } from '../lib/maintenance'
 import { checkDue } from '../lib/schedule'
@@ -24,6 +26,8 @@ export function HomeScreen({ data, onSwitchCar }: { data: ActiveCar; onSwitchCar
   const staleDays = latest ? Math.floor((data.now - latest.date) / 86_400_000) : Infinity
   const scoreColor = score >= 80 ? 'var(--ok)' : score >= 50 ? 'var(--warn)' : 'var(--danger)'
   const showInstall = isIOS() && !isStandalone()
+  const expiring = currentDocuments(data.documents).filter((d) => d.expiresAt - data.now < 30 * 86_400_000)
+  const fuel = fuelStats(data.fuel, data.now)
 
   return (
     <div className="pb-tabbar">
@@ -92,6 +96,27 @@ export function HomeScreen({ data, onSwitchCar }: { data: ActiveCar; onSwitchCar
           <Pill count={openSymptoms.length} label="مشکل باز" color="var(--accent)" onClick={() => navigate('symptoms')} />
         </div>
 
+        {/* Quick tools */}
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          <Tool icon={<Fuel className="size-5" />} label={fuel.avg ? `${toFa(fuel.avg.toFixed(1))} لیتر` : 'سوخت'} color="#f5a524" onClick={() => navigate('fuel')} />
+          <Tool icon={<FileBadge className="size-5" />} label="مدارک" color="#8b5cf6" onClick={() => navigate('documents')} dot={expiring.length > 0} />
+          <Tool icon={<BookOpen className="size-5" />} label="راهنما" color="#e5484d" onClick={() => navigate('guide')} />
+          <Tool icon={<FileDown className="size-5" />} label="گزارش" color="#0ea5e9" onClick={() => navigate('report')} />
+        </div>
+
+        {expiring.map((d) => {
+          const u = docUrgency(d, data.now)
+          return (
+            <Card key={d.id} onClick={() => navigate('documents')} className="mt-3 flex items-center gap-3 p-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl" style={{ background: `color-mix(in srgb, ${u.color} 15%, transparent)`, color: u.color }}><FileBadge className="size-6" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-bold">{docName(d)}</span>
+                <span className="block text-sm font-semibold" style={{ color: u.color }}>{u.label}</span>
+              </span>
+            </Card>
+          )
+        })}
+
         {check.due && (
           <Card onClick={() => openSheet({ type: 'check' })} className="mt-3 flex items-center gap-3 p-4">
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-cyan-500/15 text-cyan-500"><Droplets className="size-6" /></span>
@@ -159,6 +184,16 @@ function NextUp({ statuses }: { statuses: PartStatus[] }) {
   const next = statuses.filter((s) => s.dueDate).sort((a, b) => a.dueDate! - b.dueDate!)[0]
   if (!next) return null
   return <span className="block text-sm text-muted">بعدی: {next.part.name} — حدود {fmtDate(next.dueDate!)}</span>
+}
+
+function Tool({ icon, label, color, onClick, dot }: { icon: React.ReactNode; label: string; color: string; onClick: () => void; dot?: boolean }) {
+  return (
+    <button onClick={onClick} className="relative flex flex-col items-center gap-1.5 rounded-2xl bg-surface px-1 py-3 ring-1 ring-line transition active:scale-[0.97]">
+      <span className="grid size-9 place-items-center rounded-xl text-white" style={{ background: color }}>{icon}</span>
+      <span className="truncate text-[11px] font-semibold">{label}</span>
+      {dot && <span className="absolute end-2 top-2 size-2.5 rounded-full bg-danger ring-2 ring-surface" />}
+    </button>
+  )
 }
 
 function Pill({ count, label, color, onClick }: { count: number; label: string; color: string; onClick: () => void }) {

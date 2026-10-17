@@ -3,7 +3,7 @@
  * "Save to Files" stores it on the device or in iCloud Drive; elsewhere it
  * falls back to a regular download.
  */
-export async function saveFile(name: string, content: string, mime: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
+export async function saveFile(name: string, content: BlobPart, mime: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const file = new File([content], name, { type: mime })
   if (navigator.canShare?.({ files: [file] })) {
     try {

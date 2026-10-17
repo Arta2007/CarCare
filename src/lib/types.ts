@@ -57,6 +57,8 @@ export interface Car {
   transmission: Transmission
   plate?: string
   createdAt: number
+  /** Per-car interval tweaks on top of the catalog (e.g. synthetic oil) */
+  overrides?: Record<string, { intervalKm?: number; intervalMonths?: number }>
 }
 
 export interface OdometerReading {
@@ -117,6 +119,43 @@ export interface CheckLog {
   notes?: string
 }
 
+export type DocType = 'insurance' | 'body-insurance' | 'inspection' | 'tolls' | 'license' | 'other'
+
+export interface CarDocument {
+  id?: number
+  carId: number
+  type: DocType
+  title?: string
+  expiresAt: number
+  issuedAt?: number
+  cost?: number
+  company?: string
+  notes?: string
+}
+
+export interface FuelLog {
+  id?: number
+  carId: number
+  date: number
+  km: number
+  liters: number
+  /** Total paid in Toman */
+  cost?: number
+  /** Tank filled to the top — needed for accurate L/100km */
+  full: boolean
+  station?: string
+}
+
+export type PhotoOwner = 'service' | 'symptom' | 'document' | 'fuel'
+
+export interface Photo {
+  id?: number
+  owner: PhotoOwner
+  ownerId: number
+  blob: Blob
+  createdAt: number
+}
+
 export interface Settings {
   activeCarId?: number
   notifyHour: number
@@ -143,6 +182,8 @@ export interface Settings {
   /** Optional self-hosted Web Push relay (see worker/) */
   pushServer?: string
   lastPushSync?: number
+  /** Monthly subsidised fuel-card quota in litres */
+  fuelQuota: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -158,4 +199,5 @@ export const DEFAULT_SETTINGS: Settings = {
   symptomFollowupDays: 3,
   backupReminderDays: 14,
   developer: false,
+  fuelQuota: 60,
 }

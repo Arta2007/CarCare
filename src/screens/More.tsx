@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, CalendarPlus, CarFront, ChartColumn, Code2, DatabaseBackup, Download, FileText, History, Moon, Upload, Wrench } from 'lucide-react'
+import { Bell, BookOpen, CalendarPlus, CarFront, ChartColumn, Code2, FileBadge, FileDown, Fuel, DatabaseBackup, Download, FileText, History, Moon, Upload, Wrench } from 'lucide-react'
 import type { ActiveCar } from '../lib/store'
 import { allReminders, useSettings } from '../lib/store'
 import { exportAll, importAll, updateSettings } from '../lib/db'
@@ -35,7 +35,10 @@ export function MoreScreen({ data }: { data: ActiveCar }) {
       <div className="px-4">
         <Card className="divide-y divide-line overflow-hidden">
           <ListRow icon={<IconBox color="#2f6bff"><CarFront className="size-5" /></IconBox>} title="ماشین‌های من" onClick={() => navigate('cars')} />
+          <ListRow icon={<IconBox color="#8b5cf6"><FileBadge className="size-5" /></IconBox>} title="بیمه و مدارک" subtitle="شخص ثالث، معاینه فنی، عوارض" onClick={() => navigate('documents')} />
+          <ListRow icon={<IconBox color="#f5a524"><Fuel className="size-5" /></IconBox>} title="سوخت و مصرف" onClick={() => navigate('fuel')} />
           <ListRow icon={<IconBox color="#64748b"><FileText className="size-5" /></IconBox>} title="مشخصات فنی" subtitle={data.model.name} onClick={() => navigate('specs')} />
+          <ListRow icon={<IconBox color="#e5484d"><BookOpen className="size-5" /></IconBox>} title="راهنمای چراغ‌ها و صداها" onClick={() => navigate('guide')} />
         </Card>
 
         <SectionTitle>یادآوری</SectionTitle>
@@ -47,6 +50,7 @@ export function MoreScreen({ data }: { data: ActiveCar }) {
         <Card className="divide-y divide-line overflow-hidden">
           <ListRow icon={<IconBox color="#8b5cf6"><History className="size-5" /></IconBox>} title="تاریخچه‌ی کامل" onClick={() => navigate('history')} />
           <ListRow icon={<IconBox color="#17b26a"><ChartColumn className="size-5" /></IconBox>} title="هزینه‌ها" onClick={() => navigate('costs')} />
+          <ListRow icon={<IconBox color="#0ea5e9"><FileDown className="size-5" /></IconBox>} title="گزارش PDF سوابق" subtitle="برای فروش یا تعمیرکار" onClick={() => navigate('report')} />
         </Card>
 
         <SectionTitle>داده‌ها</SectionTitle>
@@ -119,19 +123,21 @@ export function SpecsScreen({ data }: { data: ActiveCar }) {
 export function NotificationsScreen() {
   const settings = useSettings()
   const [upcoming, setUpcoming] = useState<Reminder[]>([])
-  const [server, setServer] = useState(settings.pushServer ?? '')
+  const [server, setServer] = useState(settings.pushServer ?? (import.meta.env.VITE_PUSH_SERVER as string | undefined) ?? '')
   const [busy, setBusy] = useState(false)
   const standalone = isStandalone()
 
+  const [yearAhead, setYearAhead] = useState<Reminder[]>([])
+
   useEffect(() => {
     allReminders(30).then(setUpcoming)
+    allReminders(365).then(setYearAhead)
   }, [settings])
 
   async function exportCalendar() {
-    const reminders = await allReminders(365)
     const appUrl = `${location.origin}${import.meta.env.BASE_URL}`
-    const r = await saveFile('carcare-reminders.ics', toICS(reminders, appUrl), 'text/calendar')
-    if (r !== 'cancelled') toast(`${fmtNum(reminders.length)} یادآور آماده شد`)
+    const r = await saveFile('carcare-reminders.ics', toICS(yearAhead, appUrl), 'text/calendar')
+    if (r !== 'cancelled') toast(`${fmtNum(yearAhead.length)} یادآور آماده شد`)
   }
 
   async function togglePush() {
@@ -151,7 +157,7 @@ export function NotificationsScreen() {
     }
   }
 
-  const kindIcon: Record<Reminder['kind'], string> = { check: '💧', odometer: '🔢', part: '🔧', symptom: '⚠️', backup: '💾' }
+  const kindIcon: Record<Reminder['kind'], string> = { check: '💧', odometer: '🔢', part: '🔧', symptom: '⚠️', backup: '💾', document: '📄' }
 
   return (
     <div className="pb-tabbar">
@@ -248,9 +254,14 @@ export function NotificationsScreen() {
 
 export function BackupScreen() {
   const settings = useSettings()
+  const [json, setJson] = useState<string | null>(null)
+  // Prepared up front: iOS only opens the share sheet right after a tap
+  useEffect(() => {
+    exportAll().then(setJson)
+  }, [])
 
   async function backup() {
-    const json = await exportAll()
+    if (!json) return
     const { jy, jm, jd } = jalali(Date.now())
     const r = await saveFile(`carcare-backup-${jy}-${jm}-${jd}.json`, json, 'application/json')
     if (r === 'cancelled') return
@@ -282,7 +293,7 @@ export function BackupScreen() {
           <p className="mt-2 text-sm text-muted">در منوی Share گزینه‌ی <b>Save to Files</b> را بزن و یک پوشه (مثلاً iCloud Drive) انتخاب کن.</p>
           <p className="mt-3 text-sm font-semibold">{settings.lastBackupAt ? `آخرین پشتیبان: ${fmtDate(settings.lastBackupAt)} (${fmtRelDays(settings.lastBackupAt)})` : 'هنوز پشتیبانی گرفته نشده'}</p>
         </Card>
-        <Button className="w-full" onClick={backup}><Download className="size-5" />ساخت فایل پشتیبان</Button>
+        <Button className="w-full" disabled={!json} onClick={backup}><Download className="size-5" />{json ? `ساخت فایل پشتیبان (${toFa((json.length / 1024 / 1024).toFixed(1))} مگابایت)` : 'در حال آماده‌سازی…'}</Button>
         <Button variant="secondary" className="w-full" onClick={restore}><Upload className="size-5" />بازیابی از فایل</Button>
       </div>
     </div>
@@ -296,7 +307,7 @@ export function HistoryScreen({ data }: { data: ActiveCar }) {
   const partName = (id: string) => data.model.parts.find((p) => p.id === id)?.name ?? id
   const items: HistoryItem[] = [
     ...data.services.map((s) => ({ date: s.date, kind: 'service' as const, title: partName(s.partId), sub: `${fmtKm(s.km)}${s.cost ? ` • ${fmtToman(s.cost)}` : ''}${s.shop ? ` • ${s.shop}` : ''}`, go: `part/${s.partId}` })),
-    ...data.readings.map((r) => ({ date: r.date, kind: 'odo' as const, title: `کیلومتر: ${fmtNum(r.km)}`, sub: '' })),
+    ...data.odometer.map((r) => ({ date: r.date, kind: 'odo' as const, title: `کیلومتر: ${fmtNum(r.km)}`, sub: '' })),
     ...data.checks.map((c) => ({ date: c.date, kind: 'check' as const, title: 'چک دوره‌ای', sub: c.items.map((i) => CHECK_ITEMS.find((x) => x.id === i)?.name).filter(Boolean).join('، ') })),
     ...data.symptoms.map((s) => ({ date: s.date, kind: 'symptom' as const, title: s.title, sub: `${SYMPTOM_CATEGORIES[s.category]} • ${s.status === 'open' ? 'باز' : 'برطرف‌شده'}`, go: `symptom/${s.id}` })),
   ]

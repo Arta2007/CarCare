@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { History, Info, Pencil, Plus, ShieldAlert } from 'lucide-react'
 import type { ActiveCar } from '../lib/store'
-import { allStatuses, partStatus } from '../lib/maintenance'
+import { allStatuses, partStatus, visitAnchorId } from '../lib/maintenance'
+import { PhotoStrip } from '../components/photos'
 import { openSheet } from '../lib/sheets'
 import { CATEGORIES } from '../data/catalog'
 import { fmtDate, fmtKm, fmtNum, fmtRelDays, fmtToman, toFa } from '../lib/format'
 import type { CategoryId } from '../lib/types'
-import { Button, Card, Chip, Empty, PageHeader, Progress, SectionTitle, StateBadge } from '../components/ui'
+import { Button, Card, Chip, Empty, Field, NumberInput, PageHeader, Progress, SectionTitle, StateBadge, toast } from '../components/ui'
+import { db } from '../lib/db'
 import { DueRow } from './Home'
 
 type Filter = 'all' | 'attention' | 'unknown'
@@ -76,7 +78,7 @@ function UnknownRow({ name, id, untracked, interval }: { name: string; id: strin
 }
 
 export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }) {
-  const part = data.model.parts.find((p) => p.id === partId)
+  const part = data.parts.find((p) => p.id === partId) ?? data.model.parts.find((p) => p.id === partId)
   if (!part) return <Empty icon={<Info />} title="قطعه پیدا نشد" />
   const s = partStatus(part, data)
   const history = data.services.filter((r) => r.partId === partId).sort((a, b) => b.date - a.date || b.km - a.km)
@@ -111,6 +113,8 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
           </Button>
         </Card>
 
+        <IntervalEditor data={data} partId={partId} />
+
         <SectionTitle>مشخصات</SectionTitle>
         <Card className="grid grid-cols-2 gap-3 p-4 text-sm">
           <Stat label="دوره‌ی کیلومتری" value={part.intervalKm ? fmtKm(part.intervalKm) : '—'} />
@@ -138,6 +142,7 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
                     {r.cost ? ` • ${fmtToman(r.cost)}` : ''}
                   </span>
                   {r.notes && <span className="block truncate text-xs text-muted">{r.notes}</span>}
+                  <span className="mt-1.5 block"><PhotoStrip owner="service" ownerId={visitAnchorId(r, data.services)} /></span>
                 </span>
                 <Pencil className="size-4 shrink-0 text-muted" />
               </button>
@@ -146,6 +151,66 @@ export function PartDetail({ data, partId }: { data: ActiveCar; partId: string }
         )}
       </div>
     </div>
+  )
+}
+
+const OIL_PRESETS = [
+  { label: 'معدنی / بهران', km: 5000 },
+  { label: 'نیمه‌سنتتیک', km: 7000 },
+  { label: 'تمام‌سنتتیک', km: 10000 },
+]
+
+/** Per-car interval override, e.g. a longer oil interval for synthetic oil */
+function IntervalEditor({ data, partId }: { data: ActiveCar; partId: string }) {
+  const base = data.model.parts.find((p) => p.id === partId)
+  const current = data.car.overrides?.[partId]
+  const effective = data.parts.find((p) => p.id === partId) ?? base
+  const [open, setOpen] = useState(false)
+  const [km, setKm] = useState<number | undefined>(current?.intervalKm ?? base?.intervalKm)
+  const [months, setMonths] = useState<number | undefined>(current?.intervalMonths ?? base?.intervalMonths)
+  if (!base || (!base.intervalKm && !base.intervalMonths)) return null
+
+  async function save(next?: { intervalKm?: number; intervalMonths?: number }) {
+    const overrides = { ...(data.car.overrides ?? {}) }
+    if (next) overrides[partId] = next
+    else delete overrides[partId]
+    await db.cars.update(data.car.id!, { overrides })
+    setOpen(false)
+    toast(next ? 'دوره‌ی این ماشین تنظیم شد ✓' : 'به پیش‌فرض برگشت')
+  }
+
+  const isOil = partId === 'engine-oil' || partId === 'oil-filter'
+  return (
+    <Card className="mt-3 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-bold">دوره‌ی تعویض برای این ماشین</p>
+          <p className="text-sm text-muted">
+            {[effective?.intervalKm && fmtKm(effective.intervalKm), effective?.intervalMonths && `${toFa(effective.intervalMonths)} ماه`].filter(Boolean).join(' یا ')}
+            {current && <span className="font-semibold text-accent"> • شخصی‌سازی‌شده</span>}
+          </p>
+        </div>
+        <button onClick={() => setOpen((o) => !o)} className="shrink-0 rounded-lg bg-surface-2 px-3 py-1.5 text-sm font-semibold">{open ? 'بستن' : 'تغییر'}</button>
+      </div>
+      {open && (
+        <div className="mt-4">
+          {isOil && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {OIL_PRESETS.map((p) => <Chip key={p.km} active={km === p.km} onClick={() => setKm(p.km)}>{p.label} — {toFa(p.km / 1000)} هزار</Chip>)}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="هر چند کیلومتر"><NumberInput value={km} onChange={setKm} /></Field>
+            <Field label="هر چند ماه"><NumberInput value={months} onChange={setMonths} /></Field>
+          </div>
+          <div className="flex gap-2">
+            <Button className="flex-1" disabled={!km && !months} onClick={() => save({ intervalKm: km || undefined, intervalMonths: months || undefined })}>ذخیره</Button>
+            {current && <Button variant="secondary" onClick={() => save()}>پیش‌فرض</Button>}
+          </div>
+          <p className="mt-2 text-xs text-muted">پیش‌فرض: {[base.intervalKm && fmtKm(base.intervalKm), base.intervalMonths && `${toFa(base.intervalMonths)} ماه`].filter(Boolean).join(' یا ')}</p>
+        </div>
+      )}
+    </Card>
   )
 }
 

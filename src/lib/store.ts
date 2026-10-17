@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getCatalog, getSettings, updateSettings } from './db'
 import { applicableParts, findModel, type CarContext } from './maintenance'
-import type { Car, CheckLog, Symptom } from './types'
+import type { Car, CarDocument, CheckLog, FuelLog, OdometerReading, Symptom } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import { DEFAULT_CATALOG } from '../data/catalog'
 import { backupReminders, buildSchedule, type Reminder } from './schedule'
@@ -19,22 +19,30 @@ export function useCars() {
 }
 
 export interface ActiveCar extends CarContext {
+  /** Raw odometer entries (readings also includes fuel-up km for estimates) */
+  odometer: OdometerReading[]
   checks: CheckLog[]
   symptoms: Symptom[]
+  documents: CarDocument[]
+  fuel: FuelLog[]
 }
 
 async function loadCarData(car: Car): Promise<ActiveCar | null> {
-  const [catalog, settings, readings, services, checks, symptoms] = await Promise.all([
+  const id = car.id!
+  const [catalog, settings, odometer, services, checks, symptoms, documents, fuel] = await Promise.all([
     getCatalog(),
     getSettings(),
-    db.odometer.where('carId').equals(car.id!).toArray(),
-    db.services.where('carId').equals(car.id!).toArray(),
-    db.checks.where('carId').equals(car.id!).toArray(),
-    db.symptoms.where('carId').equals(car.id!).toArray(),
+    db.odometer.where('carId').equals(id).toArray(),
+    db.services.where('carId').equals(id).toArray(),
+    db.checks.where('carId').equals(id).toArray(),
+    db.symptoms.where('carId').equals(id).toArray(),
+    db.documents.where('carId').equals(id).toArray(),
+    db.fuel.where('carId').equals(id).toArray(),
   ])
   const model = findModel(catalog, car.modelId)
   if (!model) return null
-  return { car, model, parts: applicableParts(model, car), readings, services, checks, symptoms, settings, now: Date.now() }
+  const readings = [...odometer, ...fuel.map((f) => ({ carId: id, km: f.km, date: f.date }))]
+  return { car, model, parts: applicableParts(model, car), readings, odometer, services, checks, symptoms, documents, fuel, settings, now: Date.now() }
 }
 
 /** Everything the screens need for the selected car, kept live with IndexedDB */

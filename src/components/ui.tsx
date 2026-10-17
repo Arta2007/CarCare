@@ -123,22 +123,24 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 }
 
 /** Number field that accepts Persian digits and shows thousands separators */
-export function NumberInput({ value, onChange, placeholder, suffix, autoFocus, large }: { value: number | undefined; onChange: (v: number | undefined) => void; placeholder?: string; suffix?: string; autoFocus?: boolean; large?: boolean }) {
-  const [text, setText] = useState(value !== undefined ? fmtNum(value) : '')
+export function NumberInput({ value, onChange, placeholder, suffix, autoFocus, large, decimals }: { value: number | undefined; onChange: (v: number | undefined) => void; placeholder?: string; suffix?: string; autoFocus?: boolean; large?: boolean; decimals?: boolean }) {
+  const [text, setText] = useState(value !== undefined ? (decimals ? toFa(value) : fmtNum(value)) : '')
   useEffect(() => {
-    if (parseNumber(text) !== value) setText(value !== undefined ? fmtNum(value) : '')
+    if (parseNumber(text) !== value) setText(value !== undefined ? (decimals ? toFa(value) : fmtNum(value)) : '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
   return (
     <div className="relative">
       <input
-        inputMode="numeric"
+        inputMode={decimals ? 'decimal' : 'numeric'}
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={text}
         onChange={(e) => {
           const n = parseNumber(e.target.value)
-          setText(n !== undefined ? fmtNum(n) : e.target.value.replace(/[^\d۰-۹٠-٩,٬]/g, ''))
+          // Decimal fields keep the raw text so "35." can still be typed
+          if (decimals) setText(toFa(e.target.value.replace(/[^\d۰-۹٠-٩.٫]/g, '')))
+          else setText(n !== undefined ? fmtNum(n) : e.target.value.replace(/[^\d۰-۹٠-٩,٬]/g, ''))
           onChange(n)
         }}
         className={cx(inputCls, 'tnum', large && 'min-h-16 text-center text-3xl font-extrabold tracking-wide', suffix && !large && 'pe-20')}

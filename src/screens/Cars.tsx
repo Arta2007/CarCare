@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CarFront, Check, Plus, Trash2 } from 'lucide-react'
-import { db, updateSettings } from '../lib/db'
+import { db, deleteCar, updateSettings } from '../lib/db'
 import { setActiveCar, useCars, useCatalog, useSettings } from '../lib/store'
 import { findModel } from '../lib/maintenance'
 import type { Car, Transmission } from '../lib/types'
@@ -31,7 +31,7 @@ export function CarForm({ car, onDone }: { car?: Car; onDone: (id: number) => vo
     if (!model) return
     const record: Car = { name: name.trim() || model.name, modelId, year, plate: plate || undefined, transmission, createdAt: car?.createdAt ?? Date.now() }
     if (car?.id) {
-      await db.cars.update(car.id, record)
+      await db.cars.put({ ...car, ...record })
       onDone(car.id)
       return
     }
@@ -111,13 +111,7 @@ export function CarsScreen() {
 
   async function remove(car: Car) {
     if (!confirm(`«${car.name}» و تمام سوابقش حذف شود؟ این کار برگشت‌پذیر نیست.`)) return
-    await db.transaction('rw', [db.cars, db.odometer, db.services, db.symptoms, db.checks], async () => {
-      await db.odometer.where('carId').equals(car.id!).delete()
-      await db.services.where('carId').equals(car.id!).delete()
-      await db.symptoms.where('carId').equals(car.id!).delete()
-      await db.checks.where('carId').equals(car.id!).delete()
-      await db.cars.delete(car.id!)
-    })
+    await deleteCar(car.id!)
     if (activeId === car.id) await updateSettings({ activeCarId: undefined })
     setEditing(null)
     toast('حذف شد')

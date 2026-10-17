@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react'
+import type { Symptom } from './types'
 
 export type SheetState =
   | { type: 'odometer' }
   | { type: 'service'; partIds?: string[]; editId?: number }
-  | { type: 'symptom'; editId?: number }
+  | { type: 'symptom'; editId?: number; preset?: Partial<Pick<Symptom, 'title' | 'category' | 'severity' | 'description'>> }
   | { type: 'check' }
+  | { type: 'fuel'; editId?: number }
   | { type: 'actions' }
   | null
 

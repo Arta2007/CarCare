@@ -1,0 +1,86 @@
+name: Deploy push server
+
+# Deploys the optional Web Push relay (worker/) to Cloudflare Workers.
+# Needs two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+# The KV namespace and VAPID keys are created on the first run and live only
+# in Cloudflare — nothing secret is ever written to this repository.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['worker/**', 'wrangler.toml']
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID under Settings → Secrets and variables → Actions (see README)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Ensure KV namespace
+        run: |
+          find_kv() { npx wrangler kv namespace list | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const n=JSON.parse(s).find(n=>n.title==="carcare-push-kv");process.stdout.write(n?n.id:"")})'; }
+          ID=$(find_kv)
+          if [ -z "$ID" ]; then
+            npx wrangler kv namespace create carcare-push-kv
+            ID=$(find_kv)
+          fi
+          [ -n "$ID" ] || { echo "::error::Could not create the KV namespace"; exit 1; }
+          sed -i "s/REPLACE_WITH_YOUR_KV_ID/$ID/" wrangler.toml
+
+      - name: Deploy worker
+        id: deploy
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          ORIGIN="https://$OWNER.github.io"
+          npx wrangler deploy --var "ALLOWED_ORIGIN:$ORIGIN" --var "VAPID_SUBJECT:$ORIGIN/${{ github.event.repository.name }}/" | tee deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Create VAPID keys (first run only)
+        run: |
+          if npx wrangler secret list | grep -q VAPID_PRIVATE_JWK; then
+            echo "VAPID keys already exist — keeping them so existing subscriptions keep working."
+            exit 0
+          fi
+          # Generated straight into a temp file that is uploaded and deleted; never printed
+          node -e '
+            const { subtle } = globalThis.crypto;
+            (async () => {
+              const k = await subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+              const pub = Buffer.from(await subtle.exportKey("raw", k.publicKey)).toString("base64url");
+              const { kty, crv, x, y, d } = await subtle.exportKey("jwk", k.privateKey);
+              require("fs").writeFileSync(process.env.RUNNER_TEMP + "/vapid.json", JSON.stringify({ VAPID_PUBLIC_KEY: pub, VAPID_PRIVATE_JWK: JSON.stringify({ kty, crv, x, y, d }) }));
+            })();
+          '
+          npx wrangler secret bulk "$RUNNER_TEMP/vapid.json"
+          rm -f "$RUNNER_TEMP/vapid.json"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Push server deployed"
+            echo ""
+            echo "URL: \`${{ steps.deploy.outputs.url }}\`"
+            echo ""
+            echo "Paste it in the app: بیشتر ← اعلان‌ها و یادآورها ← اعلان پوش."
+            echo "Optionally save it as the repository variable PUSH_SERVER_URL so the app is pre-filled."
+          } >> "$GITHUB_STEP_SUMMARY"

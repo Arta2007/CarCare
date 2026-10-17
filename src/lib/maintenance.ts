@@ -32,7 +32,9 @@ export function findModel(catalog: Catalog, modelId: string): CarModel | undefin
 }
 
 export function applicableParts(model: CarModel, car: Car): PartSpec[] {
-  return model.parts.filter((p) => p.enabled !== false && (!p.transmission || p.transmission === car.transmission))
+  return model.parts
+    .filter((p) => p.enabled !== false && (!p.transmission || p.transmission === car.transmission))
+    .map((p) => (car.overrides?.[p.id] ? { ...p, ...car.overrides[p.id] } : p))
 }
 
 /** Latest known odometer value and when it was recorded */
@@ -51,17 +53,18 @@ export function latestKm(readings: OdometerReading[], services: ServiceRecord[])
  * history.
  */
 export function dailyKm(readings: OdometerReading[], services: ServiceRecord[], settings: Settings, now = Date.now()): number {
-  const points = [...readings, ...services]
-    .map((r) => ({ km: r.km, date: r.date }))
-    .sort((a, b) => a.date - b.date)
+  const points = [...readings, ...services].map((r) => ({ km: r.km, date: r.date }))
   if (points.length < 2) return settings.defaultDailyKm
-  const last = points[points.length - 1]
+  // The odometer only goes up, so the highest reading is the latest truth even
+  // if an approximate back-dated entry (e.g. from onboarding) shares its date
+  const last = points.reduce((a, p) => (p.km > a.km || (p.km === a.km && p.date > a.date) ? p : a))
   const windowStart = Math.min(now, last.date) - 180 * DAY
-  const first = points.find((p) => p.date >= windowStart) ?? points[0]
+  const candidates = points.filter((p) => p.date >= windowStart && p.date < last.date && p.km < last.km)
+  const first = candidates.length ? candidates.reduce((a, p) => (p.date < a.date ? p : a)) : undefined
+  if (!first) return settings.defaultDailyKm
   const spanDays = (last.date - first.date) / DAY
-  if (spanDays < 7 || last.km <= first.km) return settings.defaultDailyKm
-  const v = (last.km - first.km) / spanDays
-  return Math.min(500, Math.max(1, v))
+  if (spanDays < 7) return settings.defaultDailyKm
+  return Math.min(500, Math.max(1, (last.km - first.km) / spanDays))
 }
 
 export function estimateKmNow(ctx: CarContext): number {
@@ -142,4 +145,10 @@ export function healthScore(statuses: PartStatus[]): number {
   }
   const max = tracked.reduce((a, s) => a + 3 * (s.part.critical ? 2 : 1), 0)
   return Math.round(100 - (penalty / max) * 100)
+}
+
+/** Photos of a multi-part visit are stored once, on the visit's first record */
+export function visitAnchorId(record: ServiceRecord, services: ServiceRecord[]): number {
+  if (!record.visitId) return record.id!
+  return Math.min(...services.filter((s) => s.visitId === record.visitId).map((s) => s.id!), record.id!)
 }

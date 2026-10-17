@@ -5,6 +5,7 @@ import { useRoute, navigate } from './lib/router'
 import { openSheet } from './lib/sheets'
 import { allStatuses } from './lib/maintenance'
 import { checkDue } from './lib/schedule'
+import { currentDocuments } from './lib/documents'
 import { syncPush, updateBadge } from './lib/push'
 import { requestPersistence } from './lib/files'
 import { SheetHost } from './components/sheets'
@@ -15,6 +16,10 @@ import { SymptomDetail, SymptomsScreen } from './screens/Symptoms'
 import { BackupScreen, CostsScreen, HistoryScreen, MoreScreen, NotificationsScreen, SpecsScreen } from './screens/More'
 import { CarForm, CarsScreen, CarSwitcher } from './screens/Cars'
 import { DevScreen } from './screens/Dev'
+import { DocumentsScreen } from './screens/Documents'
+import { FuelScreen } from './screens/Fuel'
+import { GuideScreen } from './screens/Guide'
+import { ReportScreen } from './screens/Report'
 
 export default function App() {
   const cars = useCars()
@@ -42,7 +47,7 @@ export default function App() {
   useEffect(() => {
     if (!data) return
     const s = allStatuses(data)
-    const count = s.filter((x) => x.state === 'overdue' || x.state === 'soon').length + data.symptoms.filter((x) => x.status === 'open').length + (checkDue(data.checks, data.settings, Date.now()).due ? 1 : 0)
+    const count = s.filter((x) => x.state === 'overdue' || x.state === 'soon').length + data.symptoms.filter((x) => x.status === 'open').length + (checkDue(data.checks, data.settings, Date.now()).due ? 1 : 0) + currentDocuments(data.documents).filter((d) => d.expiresAt - Date.now() < 7 * 86_400_000).length
     updateBadge(count)
     const t = setTimeout(() => syncPush().catch(() => {}), 1500)
     return () => clearTimeout(t)
@@ -97,6 +102,22 @@ export default function App() {
       break
     case 'dev':
       screen = <DevScreen />
+      tab = 'more'
+      break
+    case 'documents':
+      screen = <DocumentsScreen data={data} />
+      tab = 'more'
+      break
+    case 'fuel':
+      screen = <FuelScreen data={data} />
+      tab = 'more'
+      break
+    case 'guide':
+      screen = <GuideScreen />
+      tab = 'symptoms'
+      break
+    case 'report':
+      screen = <ReportScreen data={data} />
       tab = 'more'
       break
     default:

@@ -76,8 +76,8 @@ export const DEFAULT_CATALOG: Catalog = {
         { label: 'باد لاستیک', value: '۳۰ تا ۳۲ PSI' },
       ],
       parts: [
-        { id: 'engine-oil', name: 'روغن موتور', category: 'engine', intervalKm: 7500, intervalMonths: 6, price: 2_400_000, note: 'شرایط سخت ۷۵۰۰؛ با روغن تمام‌سنتتیک و رانندگی بیرون‌شهری تا ۱۰ هزار.', critical: true },
-        { id: 'oil-filter', name: 'فیلتر روغن', category: 'filters', intervalKm: 7500, intervalMonths: 6, price: 450_000 },
+        { id: 'engine-oil', name: 'روغن موتور', category: 'engine', intervalKm: 5000, intervalMonths: 6, price: 2_400_000, note: 'روغن معدنی/نیمه‌سنتتیک (مثل بهران) در ترافیک شهری: ۵۰۰۰. با روغن تمام‌سنتتیک ۸ تا ۱۰ هزار — از صفحه‌ی همین قطعه قابل تنظیم است.', critical: true },
+        { id: 'oil-filter', name: 'فیلتر روغن', category: 'filters', intervalKm: 5000, intervalMonths: 6, price: 450_000, note: 'همراه هر بار تعویض روغن.' },
         { id: 'air-filter', name: 'فیلتر هوا', category: 'filters', intervalKm: 15000, intervalMonths: 12, price: 600_000 },
         { id: 'cabin-filter', name: 'فیلتر کابین', category: 'filters', intervalKm: 15000, intervalMonths: 12, price: 500_000 },
         { id: 'fuel-filter', name: 'فیلتر بنزین', category: 'filters', intervalKm: 40000, intervalMonths: 36, price: 700_000 },
